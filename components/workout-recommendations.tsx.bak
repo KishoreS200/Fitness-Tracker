@@ -1,0 +1,819 @@
+"use client"
+
+import { ExerciseVideoTips } from "@/components/exercise-video-tips"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardFooter } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { toast } from "@/components/ui/use-toast"
+import { useAuth } from "@/context/auth-context"
+import { useMissions } from "@/hooks/use-missions"
+import { useWorkouts } from "@/hooks/use-workouts"
+import { Award, Clock, Info, Play, RefreshCw, Target } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { useEffect, useState } from "react"
+
+interface Exercise {
+  name: string
+  sets: number
+  reps: number
+  rest: number
+}
+
+interface WorkoutWithMissions extends Workout {
+  alignedMissions: Mission[]
+}
+
+interface ExerciseDemo {
+  name: string
+  description: string
+  tips: string[]
+  imageUrl: string
+  videoUrl: string | null
+  variations: string[]
+}
+
+interface Mission {
+  _id: string
+  title: string
+  progress: number
+  category: string
+}
+
+interface Workout {
+  _id: string
+  title: string
+  difficulty: string
+  duration: number
+  categories: string[]
+  exercises?: Exercise[]
+  createdAt?: string
+  updatedAt?: string
+}
+
+const getDifficultyColor = (difficulty: string) => {
+  switch (difficulty.toLowerCase()) {
+    case "beginner":
+      return "bg-green-100 text-green-800"
+    case "intermediate":
+      return "bg-blue-100 text-blue-800"
+    case "advanced":
+      return "bg-orange-100 text-orange-800"
+    default:
+      return "bg-blue-100 text-blue-800"
+  }
+}
+
+// Exercise demonstration data with real images
+const exerciseDemos = {
+  "Push-ups": {
+    description:
+      "Start in a plank position with hands shoulder-width apart. Lower your body until your chest nearly touches the floor, then push back up.",
+    tips: [
+      "Keep your body in a straight line from head to heels",
+      "Don't let your hips sag or pike up",
+      "Elbows should be at about a 45-degree angle to your body",
+    ],
+    imageUrl: "https://images.unsplash.com/photo-1566241142559-40a9552c8a76?q=80&w=2000&auto=format&fit=crop",
+    videoUrl: null,
+    variations: ["Knee push-ups", "Incline push-ups", "Decline push-ups"],
+  },
+  Squats: {
+    description:
+      "Stand with feet shoulder-width apart. Bend your knees and lower your hips as if sitting in a chair, then return to standing.",
+    tips: [
+      "Keep your chest up and back straight",
+      "Push your knees outward in line with your toes",
+      "Lower until thighs are parallel to the ground (or as low as comfortable)",
+    ],
+    imageUrl: "https://images.unsplash.com/photo-1567598508481-65985588e295?q=80&w=2000&auto=format&fit=crop",
+    videoUrl: null,
+    variations: ["Bodyweight squats", "Goblet squats", "Sumo squats"],
+  },
+  Plank: {
+    description:
+      "Hold a push-up position with your body in a straight line from head to heels, supporting yourself on your forearms and toes.",
+    tips: [
+      "Keep your core engaged and don't let your hips sag",
+      "Breathe normally throughout the hold",
+      "Look slightly ahead to maintain neutral neck position",
+    ],
+    imageUrl: "https://images.unsplash.com/photo-1566241142295-21f8397fdcc4?q=80&w=2000&auto=format&fit=crop",
+    videoUrl: null,
+    variations: ["Forearm plank", "Side plank", "Plank with shoulder taps"],
+  },
+  "Jumping Jacks": {
+    description:
+      "Stand with feet together and arms at sides, then jump while spreading legs and raising arms overhead. Return to starting position.",
+    tips: [
+      "Land softly with slightly bent knees",
+      "Keep movements controlled and rhythmic",
+      "Maintain good posture throughout",
+    ],
+    imageUrl: "https://images.unsplash.com/photo-1601422407692-ec4eeec1d9b3?q=80&w=2000&auto=format&fit=crop",
+    videoUrl: null,
+    variations: ["Half jacks", "Low-impact jacks", "Cross jacks"],
+  },
+  Burpees: {
+    description:
+      "From standing, drop into a squat position, kick feet back to a plank, do a push-up, jump feet forward, then explosively jump up with arms overhead.",
+    tips: [
+      "Modify by removing the push-up or jump if needed",
+      "Focus on form rather than speed initially",
+      "Land softly with bent knees after the jump",
+    ],
+    imageUrl: "https://images.unsplash.com/photo-1576678927484-cc907957088c?q=80&w=2000&auto=format&fit=crop",
+    videoUrl: null,
+    variations: ["No push-up burpees", "No jump burpees", "Half burpees"],
+  },
+  "Mountain Climbers": {
+    description:
+      "Start in a plank position. Alternately drive knees toward chest in a running motion while maintaining the plank position.",
+    tips: [
+      "Keep hips level and don't pike up",
+      "Engage core throughout the movement",
+      "Control the pace - quality over speed",
+    ],
+    imageUrl: "https://images.unsplash.com/photo-1598971639058-fab3c3109a00?q=80&w=2000&auto=format&fit=crop",
+    videoUrl: null,
+    variations: ["Slow mountain climbers", "Cross-body mountain climbers", "Sliding mountain climbers"],
+  },
+  Lunges: {
+    description:
+      "From standing, step forward with one leg and lower your body until both knees are bent at 90 degrees. Push back to starting position.",
+    tips: [
+      "Keep your torso upright",
+      "Front knee should track over ankle, not past toes",
+      "Keep back knee from touching the ground",
+    ],
+    imageUrl: "https://images.unsplash.com/photo-1434682881908-b43d0467b798?q=80&w=2000&auto=format&fit=crop",
+    videoUrl: null,
+    variations: ["Static lunges", "Walking lunges", "Reverse lunges"],
+  },
+  "Bicycle Crunches": {
+    description:
+      "Lie on your back with hands behind your head. Alternate bringing opposite elbow to opposite knee while extending the other leg.",
+    tips: [
+      "Keep lower back pressed into the floor",
+      "Focus on the rotation, not just the elbow movement",
+      "Maintain controlled breathing throughout",
+    ],
+    imageUrl: "https://images.unsplash.com/photo-1541534741688-6078c6bfb5c5?q=80&w=2000&auto=format&fit=crop",
+    videoUrl: null,
+    variations: ["Slow bicycle crunches", "Seated bicycle crunches", "Flutter kicks"],
+  },
+}
+
+// Default exercise demo for exercises not in our database
+const defaultExerciseDemo = {
+  description: "This exercise helps build strength and endurance in targeted muscle groups.",
+  tips: [
+    "Maintain proper form throughout the movement",
+    "Breathe steadily - exhale during exertion",
+    "Start with lighter weights/fewer reps and progress gradually",
+  ],
+  imageUrl: "https://images.unsplash.com/photo-1517838277536-f5f99be501cd?q=80&w=2000&auto=format&fit=crop",
+  videoUrl: null,
+  variations: ["Modified version", "Standard version", "Advanced version"],
+}
+
+export function WorkoutRecommendations() {
+  const router = useRouter()
+  const [refreshKey, setRefreshKey] = useState(0)
+  const { workouts, loading, error } = useWorkouts()
+  const [selectedWorkout, setSelectedWorkout] = useState<Workout | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const { user, updateXP } = useAuth()
+  const { missions: activeMissions } = useMissions(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [aiRecommendations, setAiRecommendations] = useState<Workout[]>([])
+
+  // Add state for tracking active workout
+  const [activeWorkout, setActiveWorkout] = useState<Workout | null>(null)
+  const [workoutInProgress, setWorkoutInProgress] = useState(false)
+  const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0)
+  const [exerciseTimer, setExerciseTimer] = useState(0)
+  const [restTimer, setRestTimer] = useState(0)
+  const [isResting, setIsResting] = useState(false)
+
+  // Add state for exercise demonstration
+  const [showExerciseDemo, setShowExerciseDemo] = useState(false)
+  const [currentExerciseDemo, setCurrentExerciseDemo] = useState<ExerciseDemo | null>(null)
+
+  // Generate AI recommendations based on user profile and active missions
+  useEffect(() => {
+    if (!loading && workouts.length > 0 && user) {
+      generateAiRecommendations()
+    }
+  }, [loading, workouts, user, activeMissions, refreshKey])
+
+  const generateAiRecommendations = () => {
+    if (!workouts || workouts.length === 0) return
+
+    setIsRefreshing(true)
+
+    // Simulate AI processing delay
+    setTimeout(() => {
+      try {
+        // In a real app, this would be a more sophisticated AI algorithm
+        // For now, we'll use a simple filtering and scoring system
+
+        // Get user's fitness level
+        const userLevel = user?.level || 1
+        let recommendedDifficulty = "beginner"
+
+        if (userLevel >= 3 && userLevel < 7) {
+          recommendedDifficulty = "intermediate"
+        } else if (userLevel >= 7) {
+          recommendedDifficulty = "advanced"
+        }
+
+        // Get user's fitness goal
+        const userGoal = user?.profile?.fitnessGoal || "general"
+
+        // Get categories from active missions
+        const missionCategories = activeMissions.map((mission) => mission.category)
+
+        // Score each workout
+        const scoredWorkouts = workouts.map((workout) => {
+          let score = 0
+
+          // Score based on difficulty match
+          if (workout.difficulty === recommendedDifficulty) {
+            score += 5
+          } else if (
+            (recommendedDifficulty === "beginner" && workout.difficulty === "intermediate") ||
+            (recommendedDifficulty === "intermediate" &&
+              (workout.difficulty === "beginner" || workout.difficulty === "advanced")) ||
+            (recommendedDifficulty === "advanced" && workout.difficulty === "intermediate")
+          ) {
+            score += 3
+          }
+
+          // Score based on goal match
+          if (userGoal === "weightLoss" && workout.categories.includes("cardio")) {
+            score += 3
+          } else if (userGoal === "muscleGain" && workout.categories.includes("strength")) {
+            score += 3
+          } else if (userGoal === "flexibility" && workout.categories.includes("flexibility")) {
+            score += 3
+          }
+
+          // Score based on active mission alignment
+          workout.categories.forEach((category) => {
+            if (missionCategories.includes(category)) {
+              score += 2
+            }
+          })
+
+          // Add a small random factor for variety
+          score += Math.random() * 2
+
+          return { ...workout, aiScore: score }
+        })
+
+        // Sort by score and take top 2
+        const recommendations = scoredWorkouts
+          .sort((a, b) => b.aiScore - a.aiScore)
+          .slice(0, 2)
+          .map(workout => ({
+            ...workout,
+            exercises: workout.exercises || []
+          }))
+
+        setAiRecommendations(recommendations)
+      } catch (error) {
+        console.error("Error generating AI recommendations:", error)
+        // Fallback to random selection
+        const randomWorkouts = [...workouts]
+          .sort(() => 0.5 - Math.random())
+          .slice(0, 2)
+          .map(workout => ({
+            ...workout,
+            exercises: workout.exercises || []
+          }))
+        setAiRecommendations(randomWorkouts)
+      } finally {
+        setIsRefreshing(false)
+      }
+    }, 1000)
+  }
+
+  const handleRefresh = () => {
+    setRefreshKey((prev) => prev + 1)
+    setIsRefreshing(true)
+    generateAiRecommendations()
+  }
+
+  const handleViewWorkout = (workout: Workout | null) => {
+    if (!workout) return
+    setSelectedWorkout(workout)
+    setDialogOpen(true)
+  }
+
+  // Function to show exercise demonstration
+  const handleShowExerciseDemo = (exerciseName: string) => {
+    // Get exercise demo data or use default if not found
+    const demoData = exerciseDemos[exerciseName as keyof typeof exerciseDemos] || {
+      ...defaultExerciseDemo,
+      description: `${exerciseName}: ${defaultExerciseDemo.description}`,
+    }
+
+    setCurrentExerciseDemo({
+      name: exerciseName,
+      ...demoData,
+    })
+    setShowExerciseDemo(true)
+  }
+
+  // Add function to start workout
+  const handleStartWorkout = (workout: Workout | null) => {
+    if (!workout?.exercises?.length) return
+    setActiveWorkout(workout)
+    setWorkoutInProgress(true)
+    setCurrentExerciseIndex(0)
+  }
+
+  const handleNextExercise = () => {
+    if (!activeWorkout?.exercises?.length) return
+    if (currentExerciseIndex < activeWorkout.exercises.length - 1) {
+      setCurrentExerciseIndex(currentExerciseIndex + 1)
+    } else {
+      // Workout completed
+      setWorkoutInProgress(false)
+      setActiveWorkout(null)
+      setCurrentExerciseIndex(0)
+    }
+  }
+
+  const handlePreviousExercise = () => {
+    if (!activeWorkout?.exercises?.length) return
+    if (currentExerciseIndex > 0) {
+      setCurrentExerciseIndex(currentExerciseIndex - 1)
+    }
+  }
+
+  const getCurrentExercise = () => {
+    if (!activeWorkout?.exercises?.length) return null
+    return activeWorkout.exercises[currentExerciseIndex]
+  }
+
+  const getProgress = () => {
+    if (!activeWorkout?.exercises?.length) return 0
+    return ((currentExerciseIndex + 1) / activeWorkout.exercises.length) * 100
+  }
+
+  const getRemainingExercises = () => {
+    if (!activeWorkout?.exercises?.length) return 0
+    return activeWorkout.exercises.length - (currentExerciseIndex + 1)
+  }
+
+  const getTotalSets = () => {
+    if (!activeWorkout?.exercises?.length) return 0
+    return activeWorkout.exercises.reduce((total, exercise) => total + (exercise.sets || 0), 0)
+  }
+
+  const getCompletedSets = () => {
+    if (!activeWorkout?.exercises?.length) return 0
+    return activeWorkout.exercises
+      .slice(0, currentExerciseIndex + 1)
+      .reduce((total, exercise) => total + (exercise.sets || 0), 0)
+  }
+
+  // Add function to complete workout
+  const handleCompleteWorkout = async () => {
+    try {
+      // Calculate XP based on workout difficulty and duration
+      let xpGained = 0
+
+      if (activeWorkout) {
+        // Base XP on difficulty
+        switch (activeWorkout.difficulty) {
+          case "beginner":
+            xpGained = 50
+            break
+          case "intermediate":
+            xpGained = 100
+            break
+          case "advanced":
+            xpGained = 150
+            break
+          default:
+            xpGained = 75
+        }
+
+        // Add bonus XP based on duration (1 XP per minute)
+        if (activeWorkout.duration) {
+          xpGained += Math.floor(activeWorkout.duration / 2)
+        }
+
+        // Award XP to the user
+        await updateXP(xpGained)
+
+        // Show success message with XP gained
+        toast({
+          title: "Workout Completed!",
+          description: `Congratulations! You've earned ${xpGained} XP for completing ${activeWorkout.title}.`,
+          variant: "default",
+        })
+
+        // Check if this workout helps with any active missions
+        const relatedMissions = activeMissions.filter(
+          (mission) =>
+            mission.category === "strength" &&
+            (activeWorkout.categories.includes("strength") || activeWorkout.categories.includes("core")),
+        )
+
+        if (relatedMissions.length > 0) {
+          toast({
+            title: "Mission Progress Updated!",
+            description: `This workout counts toward your active ${relatedMissions[0].category} missions.`,
+            variant: "default",
+          })
+        }
+      } else {
+        toast({
+          title: "Workout Completed!",
+          description: "Great job on finishing your workout!",
+          variant: "default",
+        })
+      }
+    } catch (error) {
+      console.error("Error awarding XP:", error)
+      toast({
+        title: "Workout Completed",
+        description: "Your workout was completed, but there was an issue awarding XP.",
+        variant: "destructive",
+      })
+    } finally {
+      setWorkoutInProgress(false)
+      setActiveWorkout(null)
+    }
+  }
+
+  // Add function to cancel workout
+  const handleCancelWorkout = () => {
+    if (confirm("Are you sure you want to cancel this workout?")) {
+      setWorkoutInProgress(false)
+      setActiveWorkout(null)
+    }
+  }
+
+  const getExerciseName = (workout: Workout | null): string => {
+    if (!workout?.exercises?.length) return "Unknown Exercise"
+    return workout.exercises[0].name || "Unknown Exercise"
+  }
+
+  const getMissionCategory = (mission: Mission): string => {
+    return mission.category || "general"
+  }
+
+  const getWorkoutCategory = (workout: Workout | null): string => {
+    return workout?.categories?.[0] || "general"
+  }
+
+  // Mock data for mission alignments
+  const missionAlignments = [
+    { 
+      workoutId: "1", 
+      alignedMissions: [{ 
+        _id: "m1", 
+        title: "Strength Training I", 
+        progress: 50,
+        category: "strength"
+      }] 
+    },
+    { workoutId: "2", alignedMissions: [] },
+  ]
+
+  // Mock data for recommended workouts
+  const recommendedWorkouts: Workout[] = [
+    {
+      _id: "1",
+      title: "Full Body Strength Training",
+      difficulty: "intermediate",
+      duration: 45,
+      categories: ["strength", "fullBody"],
+      exercises: [{ name: "Push-ups", sets: 3, reps: 10, rest: 60 }],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    },
+    {
+      _id: "2",
+      title: "Cardio Blast HIIT",
+      difficulty: "advanced",
+      duration: 30,
+      categories: ["cardio", "hiit"],
+      exercises: [{ name: "Jumping Jacks", sets: 3, reps: 20, rest: 30 }],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    },
+  ]
+
+  return (
+    <div className="mb-8">
+      <div className="flex justify-between items-center mb-4">
+        <div>
+          <h2 className="text-xl font-bold">AI Workout Recommendations</h2>
+          <p className="text-sm text-gray-600">Personalized workouts based on your fitness level and goals</p>
+        </div>
+        <Button variant="outline" size="sm" className="flex items-center gap-1" onClick={handleRefresh}>
+          <RefreshCw className="h-4 w-4" />
+          <span>Refresh</span>
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {recommendedWorkouts.map((workout) => {
+          // Find aligned missions for this workout
+          const alignment = missionAlignments.find((a) => a.workoutId === workout._id)
+          const hasAlignedMissions = alignment && alignment.alignedMissions.length > 0
+
+          return (
+            <Card key={workout._id} className={hasAlignedMissions ? "border-blue-200" : ""}>
+              <CardContent className="p-6">
+                <div className="flex justify-between items-start mb-4">
+                  <h3 className="text-lg font-semibold">{workout.title}</h3>
+                  <span className={`px-2 py-1 ${getDifficultyColor(workout.difficulty)} text-xs font-medium rounded`}>
+                    {workout.difficulty}
+                  </span>
+                </div>
+
+                <div className="flex items-center mb-4">
+                  <Clock className="h-4 w-4 text-gray-500 mr-1" />
+                  <span className="text-sm text-gray-600">{workout.duration} min</span>
+                </div>
+
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {workout.categories.map((category: string) => (
+                    <span key={category} className="px-2 py-1 bg-gray-100 text-gray-800 text-xs font-medium rounded">
+                      {category}
+                    </span>
+                  ))}
+                </div>
+
+                {/* Add video tips for exercises */}
+                <div className="mt-3 pt-3 border-t flex justify-between items-center">
+                  <span className="text-xs text-gray-500">Watch proper form</span>
+                  <ExerciseVideoTips
+                    exerciseName={workout.title.includes("HIIT") ? "HIIT" : workout.title.split(" ")[0]}
+                    category={workout.categories[0]}
+                    missionTitle={workout.title}
+                  />
+                </div>
+
+                {hasAlignedMissions && (
+                  <div className="flex items-center gap-2 mb-2 p-2 bg-blue-50 rounded-md">
+                    <Target className="h-4 w-4 text-blue-600" />
+                    <span className="text-xs text-blue-700">
+                      Helps with your active {alignment?.alignedMissions[0].category} mission
+                    </span>
+                  </div>
+                )}
+              </CardContent>
+              <CardFooter className="px-6 py-4 bg-gray-50 border-t">
+                <Button variant="outline" className="w-full" onClick={() => handleViewWorkout(workout)}>
+                  View Workout
+                </Button>
+              </CardFooter>
+            </Card>
+          )
+        })}
+      </div>
+
+      {/* Workout Details Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{selectedWorkout?.title}</DialogTitle>
+            <DialogDescription>
+              {selectedWorkout?.difficulty} • {selectedWorkout?.duration} min
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <h4 className="text-sm font-medium mb-2">Categories</h4>
+              <div className="flex flex-wrap gap-2">
+                {selectedWorkout?.categories.map((category: string) => (
+                  <span key={category} className="px-2 py-1 bg-gray-100 text-gray-800 text-xs font-medium rounded">
+                    {category}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-sm font-medium mb-2">Exercises</h4>
+              <div className="space-y-3">
+                {selectedWorkout?.exercises?.map((exercise: any, index: number) => (
+                  <div key={index} className="bg-gray-50 p-3 rounded-md">
+                    <div className="flex justify-between items-center">
+                      <div className="font-medium">{exercise.name}</div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => handleShowExerciseDemo(exercise.name)}
+                        >
+                          <Info className="h-4 w-4" />
+                          <span className="sr-only">How to do {exercise.name}</span>
+                        </Button>
+                        <ExerciseVideoTips
+                          exerciseName={exercise.name}
+                          category={selectedWorkout?.categories[0] || "strength"}
+                        />
+                      </div>
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      {exercise.sets} sets × {exercise.reps} reps • {exercise.rest}s rest
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Show mission alignment if applicable */}
+            {selectedWorkout && (
+              (() => {
+                const alignment = missionAlignments.find((a) => a.workoutId === selectedWorkout._id)
+                return alignment?.alignedMissions && alignment.alignedMissions.length > 0 ? (
+                  <div className="pt-2 border-t">
+                    <h4 className="text-sm font-medium mb-2">Mission Alignment</h4>
+                    <div className="space-y-2">
+                      {alignment.alignedMissions.map((mission) => (
+                        <div key={mission._id} className="flex items-center gap-2 p-2 bg-blue-50 rounded-md">
+                          <Award className="h-4 w-4 text-blue-600" />
+                          <div>
+                            <p className="text-sm font-medium">{mission.title}</p>
+                            <p className="text-xs text-gray-600">{mission.progress}% complete</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null
+              })()
+            )}
+
+            <div className="pt-4 border-t">
+              <Button className="w-full" onClick={() => handleStartWorkout(selectedWorkout)}>
+                Start Workout
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Exercise Demonstration Dialog */}
+      <Dialog open={showExerciseDemo} onOpenChange={setShowExerciseDemo}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>How to do: {currentExerciseDemo?.name}</DialogTitle>
+            <DialogDescription>Follow these instructions for proper form and technique</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Exercise image or video */}
+            <div className="relative aspect-video bg-gray-100 rounded-md overflow-hidden">
+              {currentExerciseDemo?.videoUrl ? (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Button variant="ghost" size="icon" className="h-12 w-12 rounded-full bg-blue-600/80 text-white">
+                    <Play className="h-6 w-6" />
+                  </Button>
+                </div>
+              ) : (
+                <img
+                  src={currentExerciseDemo?.imageUrl || "/placeholder.svg"}
+                  alt={`${currentExerciseDemo?.name} demonstration`}
+                  className="w-full h-full object-cover"
+                />
+              )}
+            </div>
+
+            {/* Exercise description */}
+            <div>
+              <h4 className="text-sm font-medium mb-2">Instructions</h4>
+              <p className="text-sm text-gray-700">{currentExerciseDemo?.description}</p>
+            </div>
+
+            {/* Exercise tips */}
+            <div>
+              <h4 className="text-sm font-medium mb-2">Form Tips</h4>
+              <ul className="space-y-1">
+                {currentExerciseDemo?.tips.map((tip: string, index: number) => (
+                  <li key={index} className="text-sm text-gray-700 flex items-start gap-2">
+                    <div className="rounded-full bg-blue-100 text-blue-800 w-5 h-5 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      {index + 1}
+                    </div>
+                    <span>{tip}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Exercise variations */}
+            <div>
+              <h4 className="text-sm font-medium mb-2">Variations</h4>
+              <div className="flex flex-wrap gap-2">
+                {currentExerciseDemo?.variations.map((variation: string, index: number) => (
+                  <span key={index} className="px-2 py-1 bg-gray-100 text-gray-800 text-xs font-medium rounded">
+                    {variation}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button onClick={() => setShowExerciseDemo(false)}>Got it</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add workout in progress dialog */}
+      {workoutInProgress && activeWorkout && activeWorkout.exercises && (
+        <Dialog open={workoutInProgress} onOpenChange={setWorkoutInProgress}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>{activeWorkout.title}</DialogTitle>
+              <DialogDescription>
+                {activeWorkout.difficulty} • {activeWorkout.duration} min
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {isResting ? (
+                <div className="text-center py-8">
+                  <h3 className="text-xl font-bold mb-2">Rest Time</h3>
+                  <p className="text-4xl font-bold text-blue-600 mb-4">{restTimer}s</p>
+                  <p className="text-sm text-gray-600">
+                    Next exercise: {activeWorkout.exercises[currentExerciseIndex + 1]?.name || "Finish"}
+                  </p>
+                  <Button
+                    variant="outline"
+                    className="mt-4"
+                    onClick={() => {
+                      setIsResting(false)
+                      setCurrentExerciseIndex((prev) => prev + 1)
+                    }}
+                  >
+                    Skip Rest
+                  </Button>
+                </div>
+              ) : (
+                <div>
+                  <div className="bg-blue-50 p-4 rounded-lg mb-4">
+                    <div className="flex justify-between items-center mb-2">
+                      <h3 className="font-bold text-lg">{activeWorkout.exercises[currentExerciseIndex].name}</h3>
+                      <span className="text-sm text-gray-600">
+                        {currentExerciseIndex + 1}/{activeWorkout.exercises.length}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm text-gray-600 mb-3">
+                      <span>{activeWorkout.exercises[currentExerciseIndex].sets} sets</span>
+                      <span>{activeWorkout.exercises[currentExerciseIndex].reps} reps</span>
+                      <span>{activeWorkout.exercises[currentExerciseIndex].rest}s rest</span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => {
+                        if (activeWorkout?.exercises?.[currentExerciseIndex]) {
+                          handleShowExerciseDemo(activeWorkout.exercises[currentExerciseIndex].name)
+                        }
+                      }}
+                    >
+                      <Info className="h-4 w-4 mr-2" />
+                      How to do this exercise
+                    </Button>
+                  </div>
+
+                  <Button className="w-full mb-2" onClick={handleNextExercise}>
+                    Next Exercise
+                  </Button>
+
+                  <Button className="w-full mb-2" onClick={handlePreviousExercise}>
+                    Previous Exercise
+                  </Button>
+
+                  <Button variant="outline" className="w-full" onClick={handleCancelWorkout}>
+                    Cancel Workout
+                  </Button>
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+    </div>
+  )
+}
